@@ -1,0 +1,17 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+
+# LLM and Vector DB Clients
+openai
+pinecone
+langchain-text-splitters
+langchain-openai
+
+# Document Processing
+requests
+pymupdf
+python-docx
+
+# Configuration
+python-dotenv
