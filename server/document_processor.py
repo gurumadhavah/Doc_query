@@ -22,7 +22,7 @@ def get_text_chunks(text: str) -> List[str]:
     """Splits a long text into smaller, semantically coherent chunks."""
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
-        chunk_overlap=200,
+        chunk_overlap=300,
         length_function=len
     )
     chunks = text_splitter.split_text(text)

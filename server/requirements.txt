@@ -1,12 +1,13 @@
+# requirements.txt
+
 # Web Framework
 fastapi
 uvicorn[standard]
 
 # LLM and Vector DB Clients
-openai
-pinecone
+google-generativeai
+pinecone-client
 langchain-text-splitters
-langchain-openai
 
 # Document Processing
 requests
@@ -15,3 +16,8 @@ python-docx
 
 # Configuration
 python-dotenv
+
+# Database
+sqlalchemy
+psycopg2-binary
+alembic
