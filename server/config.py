@@ -19,4 +19,4 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = "hackrx-gemini-index"
 
 # --- System Configuration ---
-TOP_K_CLAUSES =10
+TOP_K_CLAUSES =12

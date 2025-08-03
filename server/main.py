@@ -1,25 +1,23 @@
 # main.py
-from fastapi import FastAPI, HTTPException, Security, status, Depends
-from fastapi.security import APIKeyHeader
-from pydantic import BaseModel, HttpUrl
-from typing import List
+import base64
+import hashlib
+from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
 from sqlalchemy.orm import Session
+from fastapi.security import APIKeyHeader
 
-# --- Project Imports ---
 import config
 import crud
 import models
 from database import SessionLocal, engine
-from document_processor import process_document_from_url
+from document_processor import process_document_content, process_document_from_url
 from vector_service import upsert_document_chunks, get_relevant_clauses
 from llm_service import get_answer_from_llm
 
-# --- Database Setup ---
-# This line creates the database tables if they don't exist.
-# For production, it's better to manage this with Alembic migrations.
 models.Base.metadata.create_all(bind=engine)
 
-# Dependency to get a DB session for each request
 def get_db():
     db = SessionLocal()
     try:
@@ -27,82 +25,99 @@ def get_db():
     finally:
         db.close()
 
-# --- FastAPI App Initialization ---
 app = FastAPI(
     title="Intelligent Query–Retrieval System",
-    description="An LLM-powered system to query large documents with database caching.",
-    version="1.1.0"
+    description="An LLM-powered system with efficient file uploads.",
+    version="2.0.0"
 )
 
-# --- Security Setup ---
+# --- Middleware and Security (remains the same) ---
+origins = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 async def verify_token(token: str = Security(api_key_header)):
-    """Dependency to verify the bearer token."""
     if not token or token.replace("Bearer ", "") != config.BEARER_TOKEN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Invalid or missing Authorization token"
-        )
+        raise HTTPException(status_code=403, detail="Invalid or missing Authorization token")
 
-# --- Pydantic Models for API ---
+# --- Pydantic Models ---
 class HackRxRequest(BaseModel):
-    documents: HttpUrl
     questions: List[str]
+    document_url: Optional[str] = None
+    filename: Optional[str] = None
+    file_content_base64: Optional[str] = None
 
 class HackRxResponse(BaseModel):
     answers: List[str]
 
-# --- API Endpoint ---
-@app.post("/hackrx/run", 
-          response_model=HackRxResponse,
-          summary="Run Document Query Submission",
-          tags=["Query System"])
-async def run_submission(
-    request: HackRxRequest, 
-    _=Security(verify_token), 
+# --- Single Unified Endpoint ---
+@app.post("/hackrx/run", response_model=HackRxResponse, summary="Process Document via JSON (URL or Base64 File)")
+async def run_submission_json(
+    request: HackRxRequest,
+    _=Security(verify_token),
     db: Session = Depends(get_db)
 ):
-    """
-    This endpoint processes a document from a URL, answers questions,
-    and uses a PostgreSQL database to cache processed documents.
-    """
-    doc_url = str(request.documents)
-    
-    try:
-        # 1. Check DB to see if the document has been processed before
-        db_document = crud.get_document_by_url(db, url=doc_url)
-        
+    # --- 1. Validate Input ---
+    is_url_provided = request.document_url is not None
+    is_file_provided = request.file_content_base64 is not None and request.filename is not None
+
+    if not is_url_provided and not is_file_provided:
+        raise HTTPException(status_code=400, detail="Either 'document_url' or 'file_content_base64' with 'filename' must be provided.")
+    if is_url_provided and is_file_provided:
+        raise HTTPException(status_code=400, detail="Provide either 'document_url' or a file, not both.")
+    if is_file_provided and not request.questions:
+         raise HTTPException(status_code=400, detail="Questions are required.")
+
+    # --- 2. Process Request ---
+    answers = []
+    if is_file_provided:
+        # --- Handle Base64 File Upload ---
+        try:
+            content_bytes = base64.b64decode(request.file_content_base64)
+            checksum = hashlib.sha256(content_bytes).hexdigest()
+        except (base64.binascii.Error, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid Base64 string.")
+
+        doc_identifier = request.filename
+        db_document = crud.get_document_by_checksum(db, checksum=checksum)
+
         if not db_document:
-            print(f"INFO: New document. Processing and indexing: {doc_url}")
-            # 2. If not, process, index, and save to DB
-            chunks = await process_document_from_url(doc_url)
-            await upsert_document_chunks(doc_url, chunks)
-            db_document = crud.create_document(db, url=doc_url)
+            print(f"INFO: New Base64 file. Processing and indexing (Checksum: {checksum[:10]}...).")
+            chunks = await process_document_content(content_bytes, doc_identifier)
+            await upsert_document_chunks(doc_identifier, chunks, checksum=checksum)
+            db_document = crud.create_document(db, url=doc_identifier, checksum=checksum)
         else:
-            print(f"INFO: Document found in cache. Skipping ingestion.")
+            print(f"INFO: File found in cache. Skipping ingestion.")
         
-        answers = []
         for question in request.questions:
-            # 3. Retrieve relevant clauses from vector DB
-            relevant_clauses = await get_relevant_clauses(doc_url, question)
-            
-            # 4. Generate answer using LLM
+            relevant_clauses = await get_relevant_clauses(doc_identifier, question, checksum=checksum)
             answer = await get_answer_from_llm(question, relevant_clauses)
             answers.append(answer)
+            crud.create_query(db, document_id=db_document.id, question=question, answer=answer)
 
-            # 5. Log the question and its answer to the database
-            crud.create_query(
-                db, 
-                document_id=db_document.id, 
-                question=question, 
-                answer=answer
-            )
+    else: # if is_url_provided:
+        # --- Handle URL ---
+        doc_identifier = request.document_url
+        db_document = crud.get_document_by_url(db, url=doc_identifier)
 
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")
+        if not db_document:
+            print(f"INFO: New URL. Processing and indexing: {doc_identifier}")
+            chunks = await process_document_from_url(doc_identifier)
+            await upsert_document_chunks(doc_identifier, chunks)
+            db_document = crud.create_document(db, url=doc_identifier, checksum=None)
+        else:
+            print(f"INFO: URL found in cache. Skipping ingestion.")
+        
+        for question in request.questions:
+            relevant_clauses = await get_relevant_clauses(doc_identifier, question)
+            answer = await get_answer_from_llm(question, relevant_clauses)
+            answers.append(answer)
+            crud.create_query(db, document_id=db_document.id, question=question, answer=answer)
 
     return HackRxResponse(answers=answers)

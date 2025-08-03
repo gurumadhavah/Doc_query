@@ -1,48 +1,49 @@
-import { useState } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Upload, Link, FileText, File, Mail, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { File, FileText, Link, Mail, Upload } from 'lucide-react';
+import { useState } from 'react';
+
+// Updated interface for the data sent to the parent component
+interface SubmitPayload {
+  source: string;
+  checksum?: string;
+  fileObject?: File;
+  isFileUpload: boolean;
+}
 
 interface UploadFormProps {
-  onDocumentSubmit: (documentUrl: string) => void;
+  onDocumentSubmit: (payload: SubmitPayload) => void;
   isLoading: boolean;
 }
 
 export const UploadForm = ({ onDocumentSubmit, isLoading }: UploadFormProps) => {
   const [documentUrl, setDocumentUrl] = useState('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [uploadMode, setUploadMode] = useState<'url' | 'file'>('url');
+  const [uploadMode, setUploadMode] = useState<'url' | 'file'>('url'); 
   const { toast } = useToast();
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (documentUrl.trim()) {
-      onDocumentSubmit(documentUrl.trim());
+      // Send payload for URL submission
+      onDocumentSubmit({ source: documentUrl.trim(), isFileUpload: false });
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
-    const allowedTypes = [
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/msword',
-      'message/rfc822',
-      'application/vnd.ms-outlook'
-    ];
-
+    // --- File Validation ---
     const allowedExtensions = ['.pdf', '.docx', '.doc', '.eml', '.msg'];
     const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
 
-    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+    if (!allowedExtensions.includes(fileExtension)) {
       toast({
         title: "Invalid File Type",
         description: "Please upload a PDF, DOCX, or email file.",
@@ -51,11 +52,10 @@ export const UploadForm = ({ onDocumentSubmit, isLoading }: UploadFormProps) => 
       return;
     }
 
-    // Check file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > 25 * 1024 * 1024) { // Increased limit to 25MB
       toast({
         title: "File Too Large",
-        description: "Please upload a file smaller than 10MB.",
+        description: "Please upload a file smaller than 25MB.",
         variant: "destructive",
       });
       return;
@@ -63,18 +63,34 @@ export const UploadForm = ({ onDocumentSubmit, isLoading }: UploadFormProps) => 
 
     setUploadedFile(file);
     
-    // Convert file to data URL for processing
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      onDocumentSubmit(dataUrl);
-    };
-    reader.readAsDataURL(file);
+    try {
+      // --- File Processing for Checksum ---
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const checksum = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
-    toast({
-      title: "File Uploaded",
-      description: `${file.name} has been uploaded successfully.`,
-    });
+      // FIX: Pass the raw File object up, don't use FileReader
+      onDocumentSubmit({
+        source: file.name, // Use filename for display
+        checksum: checksum,
+        fileObject: file, // This is the raw file for FormData
+        isFileUpload: true
+      });
+
+      toast({
+        title: "File Ready",
+        description: `${file.name} is ready to be analyzed.`,
+      });
+
+    } catch (error) {
+        console.error("Error processing file:", error);
+        toast({
+            title: "Error",
+            description: "Could not process the file for upload.",
+            variant: "destructive",
+        });
+    }
   };
 
   const getFileIcon = (file: File) => {
@@ -94,39 +110,31 @@ export const UploadForm = ({ onDocumentSubmit, isLoading }: UploadFormProps) => 
   };
 
   return (
-    <Card className="w-full shadow-card">
-      <CardHeader className="space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent text-primary-foreground">
-            <Upload className="h-5 w-5" />
+    <Card className="w-full shadow-lg">
+      <CardHeader>
+        <div className="flex items-center gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Upload className="h-6 w-6" />
           </div>
           <div>
-            <CardTitle className="text-xl">Document Upload</CardTitle>
+            <CardTitle className="text-xl">Document Processor</CardTitle>
             <CardDescription>
-              Upload documents via URL or direct file upload (PDF, DOCX, Email)
+              Submit a document via public URL or direct file upload.
             </CardDescription>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <Tabs defaultValue="url" onValueChange={(value) => setUploadMode(value as 'url' | 'file')}>
+      <CardContent>
+        <Tabs value={uploadMode} onValueChange={(value) => setUploadMode(value as 'url' | 'file')}>
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="url" className="flex items-center gap-2">
-              <Link className="h-4 w-4" />
-              URL
-            </TabsTrigger>
-            <TabsTrigger value="file" className="flex items-center gap-2">
-              <Upload className="h-4 w-4" />
-              File Upload
-            </TabsTrigger>
+            <TabsTrigger value="url"><Link className="mr-2 h-4 w-4" />URL</TabsTrigger>
+            <TabsTrigger value="file"><Upload className="mr-2 h-4 w-4" />File</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="url" className="space-y-4">
+          <TabsContent value="url" className="pt-4">
             <form onSubmit={handleUrlSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="document-url" className="text-sm font-medium">
-                  Document URL
-                </Label>
+                <Label htmlFor="document-url">Document URL</Label>
                 <div className="relative">
                   <Link className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -141,82 +149,59 @@ export const UploadForm = ({ onDocumentSubmit, isLoading }: UploadFormProps) => 
                   />
                 </div>
               </div>
-              <Button 
-                type="submit" 
-                className="w-full" 
-                disabled={!documentUrl.trim() || isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <Upload className="mr-2 h-4 w-4 animate-spin" />
-                    Loading URL...
-                  </>
+              <Button type="submit" className="w-full" disabled={!documentUrl.trim() || isLoading}>
+                {isLoading && uploadMode === 'url' ? (
+                  <><Upload className="mr-2 h-4 w-4 animate-spin" /> Processing...</>
                 ) : (
-                  <>
-                    <Link className="mr-2 h-4 w-4" />
-                    Load from URL
-                  </>
+                  <><Link className="mr-2 h-4 w-4" /> Process from URL</>
                 )}
               </Button>
             </form>
           </TabsContent>
 
-          <TabsContent value="file" className="space-y-4">
+          <TabsContent value="file" className="pt-4">
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="document-file" className="text-sm font-medium">
-                  Upload Document
-                </Label>
-                <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-muted-foreground/50 transition-colors">
+                <Label htmlFor="document-file">Upload Document</Label>
+                <div className="relative rounded-lg border-2 border-dashed p-6 text-center transition-colors hover:border-primary/50">
                   <input
                     id="document-file"
                     type="file"
                     accept=".pdf,.docx,.doc,.eml,.msg"
                     onChange={handleFileUpload}
-                    className="hidden"
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                     disabled={isLoading}
                   />
-                  <label htmlFor="document-file" className="cursor-pointer">
-                    <div className="flex flex-col items-center gap-2">
-                      <Upload className="h-8 w-8 text-muted-foreground" />
-                      <div className="text-sm">
-                        <span className="font-medium text-primary">Click to upload</span>
-                        <span className="text-muted-foreground"> or drag and drop</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        PDF, DOCX, or Email files (max 10MB)
-                      </div>
-                    </div>
-                  </label>
+                  <div className="flex flex-col items-center gap-2">
+                    <Upload className="h-8 w-8 text-muted-foreground" />
+                    <p className="text-sm">
+                      <span className="font-medium text-primary">Click to upload</span>
+                      <span className="text-muted-foreground"> or drag and drop</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      PDF, DOCX, DOC, EML, or MSG (Max 25MB)
+                    </p>
+                  </div>
                 </div>
               </div>
-
               {uploadedFile && (
-                <div className="flex items-center gap-3 p-3 border rounded-lg bg-muted/30">
+                <div className="flex items-center gap-3 rounded-lg border bg-muted/50 p-3">
                   {getFileIcon(uploadedFile)}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{uploadedFile.name}</p>
+                    <p className="truncate text-sm font-medium">{uploadedFile.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
                     </p>
                   </div>
-                  <Badge variant="outline" className="border-success text-success">
-                    Uploaded
-                  </Badge>
+                  {isLoading && uploadMode === 'file' ? (
+                     <Badge variant="secondary">Processing...</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="border-green-600 text-green-600">
+                      Ready
+                    </Badge>
+                  )}
                 </div>
               )}
-
-              <div className="flex items-start gap-2 p-3 bg-warning/5 border border-warning/20 rounded-lg">
-                <AlertCircle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-warning-foreground">
-                  <p className="font-medium mb-1">Supported formats:</p>
-                  <ul className="space-y-0.5">
-                    <li>• PDF documents (.pdf)</li>
-                    <li>• Word documents (.docx, .doc)</li>
-                    <li>• Email files (.eml, .msg)</li>
-                  </ul>
-                </div>
-              </div>
             </div>
           </TabsContent>
         </Tabs>
