@@ -81,9 +81,18 @@ export const Home = () => {
         });
 
         if (!fetchResponse.ok) {
-            const errorData = await fetchResponse.json();
-            throw new Error(errorData.detail || "Analysis failed.");
-        }
+          let errorMessage = "Analysis failed.";
+          try {
+              const errorData = await fetchResponse.json();
+              errorMessage = errorData.detail || errorMessage;
+          } catch (jsonErr) {
+              const textError = await fetchResponse.text();
+              console.warn("Non-JSON error response:", textError);
+              errorMessage = textError || errorMessage;
+          }
+          throw new Error(errorMessage);
+      }
+
         
         const response = await fetchResponse.json();
         const processingTime = Date.now() - startTime;
