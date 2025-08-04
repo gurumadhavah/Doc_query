@@ -32,7 +32,7 @@ app = FastAPI(
 )
 
 # --- Middleware and Security (remains the same) ---
-origins = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"]
+origins = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080" , "https://docuquery-client.onrender.com"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
