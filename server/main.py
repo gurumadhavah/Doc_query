@@ -42,6 +42,19 @@ app.add_middleware(
 )
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
+@app.get("/debug-config")
+def debug_config():
+    """
+    A temporary endpoint to check the live server's configuration.
+    """
+    # This will show us exactly what the server is configured with
+    return {
+        "message": "Debugging server configuration",
+        "configured_origins": origins,
+        "client_url_from_env": os.getenv("CLIENT_URL"),
+        "bearer_token_is_set": os.getenv("BEARER_TOKEN") is not None
+    }
+
 async def verify_token(token: str = Security(api_key_header)):
     if not token or token.replace("Bearer ", "") != config.BEARER_TOKEN:
         raise HTTPException(status_code=403, detail="Invalid or missing Authorization token")
