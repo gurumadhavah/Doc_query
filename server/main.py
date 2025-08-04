@@ -16,7 +16,7 @@ from document_processor import process_document_content, process_document_from_u
 from vector_service import upsert_document_chunks, get_relevant_clauses
 from llm_service import get_answer_from_llm
 
-models.Base.metadata.create_all(bind=engine)
+#models.Base.metadata.create_all(bind=engine)
 
 def get_db():
     db = SessionLocal()
