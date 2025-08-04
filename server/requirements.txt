@@ -6,7 +6,7 @@ uvicorn[standard]
 
 # LLM and Vector DB Clients
 google-generativeai
-pinecone-client
+pinecone
 langchain-text-splitters
 
 # Document Processing
