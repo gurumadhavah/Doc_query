@@ -21,9 +21,3 @@ python-dotenv
 sqlalchemy
 psycopg2-binary
 alembic
-fastapi
-uvicorn
-sqlalchemy
-psycopg2-binary
-pydantic
-python-dotenv

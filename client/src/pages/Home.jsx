@@ -51,7 +51,7 @@ export const Home = () => {
     const startTime = Date.now();
 
     try {
-        const API_URL = "/api/hackrx/run";
+        const API_URL = "http://localhost:8000/hackrx/run";
         const API_TOKEN = "af215d20c2561423c20b7ccdfbb4dbc6fe7c5bb9bc869dae38917c8de16368ca";
         let requestBody;
 
