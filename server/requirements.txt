@@ -22,3 +22,5 @@ sqlalchemy
 psycopg2-binary
 alembic
 gunicorn
+
+extract_msg
