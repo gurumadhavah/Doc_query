@@ -1,6 +1,7 @@
 # main.py
 import base64
 import hashlib
+import os
 from fastapi import FastAPI, HTTPException, Security, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
